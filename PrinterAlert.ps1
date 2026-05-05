@@ -435,7 +435,8 @@ function Update-Dashboard {
 
     # Diferencia
     if ($rec.Secuencia -ge 0 -and $imp.Secuencia -ge 0) {
-        $dif = $rec.Secuencia - $imp.Secuencia
+        # Secuencias van de 0 a 999 y vuelven a 0 (modulo 1000)
+        $dif = ($rec.Secuencia - $imp.Secuencia + 1000) % 1000
         $lblDiferencia.Text = $dif.ToString()
 
         if ($dif -le 0) {
@@ -606,7 +607,9 @@ $btnRunCorrectivo.Add_Click({
     $maxWait = 30; $waited = 0
     while ($waited -lt $maxWait) {
         $impActual = Get-SecuenciaImpresa
-        if ($null -ne $impActual -and $impActual.Secuencia -ge $recActual.Secuencia) {
+        # Usar modulo 1000 para manejar el wrap-around (999 -> 0)
+        $difWait = ($recActual.Secuencia - $impActual.Secuencia + 1000) % 1000
+        if ($null -ne $impActual -and $difWait -eq 0) {
             Add-Log "Secuencia $($impActual.Secuencia) impresa OK!" "OK"
             break
         }

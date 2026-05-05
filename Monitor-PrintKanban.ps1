@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Monitor de impresión Kanban DOOR - Detecta desincronización entre secuencias recibidas y secuencias impresas.
 
@@ -370,8 +370,8 @@ if ($null -ne $impresa) {
 }
 Write-Host ""
 
-# 4. Calcular diferencia y evaluar
-$diferencia = $recibida.Secuencia - $impresa.Secuencia
+# 4. Calcular diferencia y evaluar (secuencias van de 0 a 999 y vuelven a 0)
+$diferencia = ($recibida.Secuencia - $impresa.Secuencia + 1000) % 1000
 
 Write-Host "  ╔══════════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "  ║  RESUMEN                                                    ║" -ForegroundColor Cyan
