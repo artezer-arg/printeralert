@@ -1,0 +1,7 @@
+# Gemini/Antigravity workspace files
+.gemini/
+brain/
+
+# Windows
+Thumbs.db
+Desktop.ini
