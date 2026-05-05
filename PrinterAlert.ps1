@@ -13,6 +13,8 @@ $script:Config = @{
     PosicionSecuencia = 10
     LargoSecuencia    = 3
     Tolerancia        = 5
+    ConsolaExe        = "JIT.Services.PrintMgrSvcHostConsole.exe"
+    ConsolaRuta       = "C:\Program Files\JITMS\prod\print-services-2.4.2-console\JIT.Services.PrintMgrSvcHostConsole.exe"
 }
 
 # ============================================================
@@ -56,6 +58,55 @@ function Get-EstadoServicioRemoto {
     } catch {
         return @{ Status = "Error"; Error = $_.Exception.Message }
     }
+}
+
+function Get-EstadoConsola {
+    try {
+        $proc = Get-WmiObject Win32_Process -ComputerName $script:Config.Servidor -Filter "Name='$($script:Config.ConsolaExe)'" -ErrorAction Stop
+        if ($proc) { return @{ Running = $true; PID = $proc.ProcessId; Error = $null } }
+        else { return @{ Running = $false; PID = $null; Error = $null } }
+    } catch {
+        return @{ Running = $false; PID = $null; Error = $_.Exception.Message }
+    }
+}
+
+function Stop-ConsolaRemota {
+    try {
+        $proc = Get-WmiObject Win32_Process -ComputerName $script:Config.Servidor -Filter "Name='$($script:Config.ConsolaExe)'" -ErrorAction Stop
+        if ($proc) {
+            $proc.Terminate() | Out-Null
+            return @{ Success = $true; Error = $null }
+        }
+        return @{ Success = $true; Error = "La consola no estaba corriendo" }
+    } catch {
+        return @{ Success = $false; Error = $_.Exception.Message }
+    }
+}
+
+function Start-ConsolaRemota {
+    try {
+        $result = ([wmiclass]"\\$($script:Config.Servidor)\root\cimv2:Win32_Process").Create($script:Config.ConsolaRuta)
+        if ($result.ReturnValue -eq 0) { return @{ Success = $true; PID = $result.ProcessId; Error = $null } }
+        else { return @{ Success = $false; PID = $null; Error = "ReturnValue: $($result.ReturnValue)" } }
+    } catch {
+        return @{ Success = $false; PID = $null; Error = $_.Exception.Message }
+    }
+}
+
+function Stop-ServicioRemoto {
+    try {
+        $svc = Get-WmiObject Win32_Service -ComputerName $script:Config.Servidor -Filter "Name='$($script:Config.NombreServicio)'" -ErrorAction Stop
+        if ($svc) { $svc.StopService() | Out-Null; return @{ Success = $true; Error = $null } }
+        return @{ Success = $false; Error = "Servicio no encontrado" }
+    } catch { return @{ Success = $false; Error = $_.Exception.Message } }
+}
+
+function Start-ServicioRemoto {
+    try {
+        $svc = Get-WmiObject Win32_Service -ComputerName $script:Config.Servidor -Filter "Name='$($script:Config.NombreServicio)'" -ErrorAction Stop
+        if ($svc) { $svc.StartService() | Out-Null; return @{ Success = $true; Error = $null } }
+        return @{ Success = $false; Error = "Servicio no encontrado" }
+    } catch { return @{ Success = $false; Error = $_.Exception.Message } }
 }
 
 # ============================================================
@@ -184,7 +235,13 @@ function Get-EstadoServicioRemoto {
                     </StackPanel>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Tolerancia:" Foreground="#9ca3af" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock Text="Modo:" Foreground="#9ca3af" FontSize="13" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="cmbModo" Width="120" FontSize="13" Background="#252830" Foreground="Black" BorderBrush="#374151" Padding="6,4" SelectedIndex="0">
+                        <ComboBoxItem Content="Demo"/>
+                        <ComboBoxItem Content="Preguntar"/>
+                        <ComboBoxItem Content="Auto"/>
+                    </ComboBox>
+                    <TextBlock Text="Tolerancia:" Foreground="#9ca3af" FontSize="13" VerticalAlignment="Center" Margin="16,0,8,0"/>
                     <TextBox x:Name="txtTolerancia" Text="5" Width="50" FontSize="14" FontWeight="Bold"
                              Background="#252830" Foreground="White" BorderBrush="#374151" BorderThickness="1"
                              Padding="8,6" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
@@ -257,9 +314,16 @@ function Get-EstadoServicioRemoto {
                 <WrapPanel>
                     <Button x:Name="btnStopService" Content="&#x23F9; Detener Servicio" Style="{StaticResource BtnDanger}" Margin="0,0,8,8"/>
                     <Button x:Name="btnStartService" Content="&#x25B6; Iniciar Servicio" Style="{StaticResource BtnSuccess}" Margin="0,0,8,8"/>
+                    <Button x:Name="btnStopConsola" Content="&#x23F9; Detener Consola" Style="{StaticResource BtnDanger}" Margin="0,0,8,8"/>
+                    <Button x:Name="btnStartConsola" Content="&#x25B6; Iniciar Consola" Style="{StaticResource BtnSuccess}" Margin="0,0,8,8"/>
+                    <Button x:Name="btnRunCorrectivo" Content="&#x1F527; Ejecutar Correctivo" Style="{StaticResource BtnPrimary}" Margin="0,0,8,8"/>
                     <Button x:Name="btnOpenLogs" Content="&#x1F4C2; Abrir Logs" Style="{StaticResource BtnPrimary}" Margin="0,0,8,8"/>
                     <Button x:Name="btnOpenProcessed" Content="&#x1F4C2; Abrir Procesados" Style="{StaticResource BtnPrimary}" Margin="0,0,8,8"/>
                 </WrapPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                    <TextBlock Text="Consola:" Foreground="#9ca3af" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <TextBlock x:Name="lblConsola" Text="---" Foreground="#6b7280" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                </StackPanel>
             </StackPanel>
         </Border>
 
@@ -310,9 +374,14 @@ $txtLog            = $window.FindName("txtLog")
 $btnRefresh        = $window.FindName("btnRefresh")
 $btnStopService    = $window.FindName("btnStopService")
 $btnStartService   = $window.FindName("btnStartService")
+$btnStopConsola    = $window.FindName("btnStopConsola")
+$btnStartConsola   = $window.FindName("btnStartConsola")
+$btnRunCorrectivo  = $window.FindName("btnRunCorrectivo")
 $btnOpenLogs       = $window.FindName("btnOpenLogs")
 $btnOpenProcessed  = $window.FindName("btnOpenProcessed")
 $chkAutoRefresh    = $window.FindName("chkAutoRefresh")
+$cmbModo           = $window.FindName("cmbModo")
+$lblConsola        = $window.FindName("lblConsola")
 $alertBanner       = $window.FindName("alertBanner")
 $alertTitle        = $window.FindName("alertTitle")
 $alertMsg          = $window.FindName("alertMsg")
@@ -414,6 +483,16 @@ function Update-Dashboard {
         Add-Log "Servicio: $($svc.Status)" "WARN"
     }
 
+    # Consola
+    $con = Get-EstadoConsola
+    if ($con.Running) {
+        $lblConsola.Text = "Running (PID: $($con.PID))"
+        $lblConsola.Foreground = [System.Windows.Media.Brushes]::LimeGreen
+    } else {
+        $lblConsola.Text = "Detenida"
+        $lblConsola.Foreground = [System.Windows.Media.Brushes]::Red
+    }
+
     $lblUltimaAct.Text = "Ultima actualizacion: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 }
 
@@ -423,43 +502,124 @@ function Update-Dashboard {
 $btnRefresh.Add_Click({ Update-Dashboard })
 
 $btnStopService.Add_Click({
-    $result = [System.Windows.MessageBox]::Show(
-        "Esta seguro de DETENER el servicio $($script:Config.NombreServicio)?",
-        "Confirmar detencion", "YesNo", "Warning")
-    if ($result -eq "Yes") {
-        Add-Log "Deteniendo servicio $($script:Config.NombreServicio)..." "ACCION"
-        try {
-            Invoke-Command -ComputerName $script:Config.Servidor -ScriptBlock {
-                param($svcName) Stop-Service -Name $svcName -Force
-            } -ArgumentList $script:Config.NombreServicio -ErrorAction Stop
-            Add-Log "Servicio detenido exitosamente." "OK"
-            [System.Windows.MessageBox]::Show("Servicio detenido exitosamente.", "Exito", "OK", "Information")
-        } catch {
-            Add-Log "Error deteniendo servicio: $_" "ERROR"
-            [System.Windows.MessageBox]::Show("Error: $_", "Error", "OK", "Error")
-        }
-        Update-Dashboard
+    $modo = $cmbModo.SelectedIndex  # 0=Demo, 1=Preguntar, 2=Auto
+    if ($modo -eq 0) {
+        Add-Log "[DEMO] Se detendria el servicio $($script:Config.NombreServicio)" "DEMO"
+        [System.Windows.MessageBox]::Show("MODO DEMO: Se detendria el servicio $($script:Config.NombreServicio).`nCambie a modo 'Preguntar' o 'Auto' para ejecutar.", "Modo Demo", "OK", "Information")
+        return
     }
+    if ($modo -eq 1) {
+        $result = [System.Windows.MessageBox]::Show("Detener servicio $($script:Config.NombreServicio)?", "Confirmar", "YesNo", "Warning")
+        if ($result -ne "Yes") { Add-Log "Detencion de servicio cancelada por usuario" "INFO"; return }
+    }
+    Add-Log "Deteniendo servicio $($script:Config.NombreServicio)..." "ACCION"
+    $r = Stop-ServicioRemoto
+    if ($r.Success) { Add-Log "Servicio detenido exitosamente." "OK" }
+    else { Add-Log "Error deteniendo servicio: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 2; Update-Dashboard
 })
 
 $btnStartService.Add_Click({
-    $result = [System.Windows.MessageBox]::Show(
-        "Esta seguro de INICIAR el servicio $($script:Config.NombreServicio)?",
-        "Confirmar inicio", "YesNo", "Question")
-    if ($result -eq "Yes") {
-        Add-Log "Iniciando servicio $($script:Config.NombreServicio)..." "ACCION"
-        try {
-            Invoke-Command -ComputerName $script:Config.Servidor -ScriptBlock {
-                param($svcName) Start-Service -Name $svcName
-            } -ArgumentList $script:Config.NombreServicio -ErrorAction Stop
-            Add-Log "Servicio iniciado exitosamente." "OK"
-            [System.Windows.MessageBox]::Show("Servicio iniciado exitosamente.", "Exito", "OK", "Information")
-        } catch {
-            Add-Log "Error iniciando servicio: $_" "ERROR"
-            [System.Windows.MessageBox]::Show("Error: $_", "Error", "OK", "Error")
-        }
-        Update-Dashboard
+    $modo = $cmbModo.SelectedIndex
+    if ($modo -eq 0) {
+        Add-Log "[DEMO] Se iniciaria el servicio $($script:Config.NombreServicio)" "DEMO"
+        [System.Windows.MessageBox]::Show("MODO DEMO: Se iniciaria el servicio.`nCambie a modo 'Preguntar' o 'Auto' para ejecutar.", "Modo Demo", "OK", "Information")
+        return
     }
+    if ($modo -eq 1) {
+        $result = [System.Windows.MessageBox]::Show("Iniciar servicio $($script:Config.NombreServicio)?", "Confirmar", "YesNo", "Question")
+        if ($result -ne "Yes") { Add-Log "Inicio de servicio cancelado por usuario" "INFO"; return }
+    }
+    Add-Log "Iniciando servicio $($script:Config.NombreServicio)..." "ACCION"
+    $r = Start-ServicioRemoto
+    if ($r.Success) { Add-Log "Servicio iniciado exitosamente." "OK" }
+    else { Add-Log "Error iniciando servicio: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 2; Update-Dashboard
+})
+
+$btnStopConsola.Add_Click({
+    $modo = $cmbModo.SelectedIndex
+    if ($modo -eq 0) {
+        Add-Log "[DEMO] Se detendria la consola $($script:Config.ConsolaExe)" "DEMO"
+        [System.Windows.MessageBox]::Show("MODO DEMO: Se detendria la consola de impresion.`nCambie a modo 'Preguntar' o 'Auto' para ejecutar.", "Modo Demo", "OK", "Information")
+        return
+    }
+    if ($modo -eq 1) {
+        $result = [System.Windows.MessageBox]::Show("Detener la consola de impresion?", "Confirmar", "YesNo", "Warning")
+        if ($result -ne "Yes") { Add-Log "Detencion de consola cancelada por usuario" "INFO"; return }
+    }
+    Add-Log "Deteniendo consola de impresion..." "ACCION"
+    $r = Stop-ConsolaRemota
+    if ($r.Success) { Add-Log "Consola detenida. $($r.Error)" "OK" }
+    else { Add-Log "Error deteniendo consola: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 2; Update-Dashboard
+})
+
+$btnStartConsola.Add_Click({
+    $modo = $cmbModo.SelectedIndex
+    if ($modo -eq 0) {
+        Add-Log "[DEMO] Se iniciaria la consola $($script:Config.ConsolaExe)" "DEMO"
+        [System.Windows.MessageBox]::Show("MODO DEMO: Se iniciaria la consola de impresion.`nCambie a modo 'Preguntar' o 'Auto' para ejecutar.", "Modo Demo", "OK", "Information")
+        return
+    }
+    if ($modo -eq 1) {
+        $result = [System.Windows.MessageBox]::Show("Iniciar la consola de impresion?", "Confirmar", "YesNo", "Question")
+        if ($result -ne "Yes") { Add-Log "Inicio de consola cancelado por usuario" "INFO"; return }
+    }
+    Add-Log "Iniciando consola de impresion..." "ACCION"
+    $r = Start-ConsolaRemota
+    if ($r.Success) { Add-Log "Consola iniciada (PID: $($r.PID))" "OK" }
+    else { Add-Log "Error iniciando consola: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 3; Update-Dashboard
+})
+
+$btnRunCorrectivo.Add_Click({
+    $modo = $cmbModo.SelectedIndex
+    $pasos = "1. Detener servicio ImportTXTTASAsvcHost`n2. Detener consola de impresion`n3. Iniciar consola de impresion`n4. Esperar impresion de ultima secuencia`n5. Iniciar servicio ImportTXTTASAsvcHost"
+    if ($modo -eq 0) {
+        Add-Log "[DEMO] Se ejecutaria el correctivo completo" "DEMO"
+        [System.Windows.MessageBox]::Show("MODO DEMO - Pasos que se ejecutarian:`n`n$pasos`n`nCambie a modo 'Preguntar' o 'Auto' para ejecutar.", "Modo Demo", "OK", "Information")
+        return
+    }
+    if ($modo -eq 1) {
+        $result = [System.Windows.MessageBox]::Show("Ejecutar correctivo completo?`n`n$pasos", "Confirmar correctivo", "YesNo", "Warning")
+        if ($result -ne "Yes") { Add-Log "Correctivo cancelado por usuario" "INFO"; return }
+    }
+    # Paso 1: Detener servicio
+    Add-Log "CORRECTIVO PASO 1/5: Deteniendo servicio..." "ACCION"
+    $r = Stop-ServicioRemoto
+    if ($r.Success) { Add-Log "Servicio detenido." "OK" } else { Add-Log "Error: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 2
+    # Paso 2: Detener consola
+    Add-Log "CORRECTIVO PASO 2/5: Deteniendo consola..." "ACCION"
+    $r = Stop-ConsolaRemota
+    if ($r.Success) { Add-Log "Consola detenida." "OK" } else { Add-Log "Error: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 3
+    # Paso 3: Iniciar consola
+    Add-Log "CORRECTIVO PASO 3/5: Iniciando consola..." "ACCION"
+    $r = Start-ConsolaRemota
+    if ($r.Success) { Add-Log "Consola iniciada (PID: $($r.PID))" "OK" } else { Add-Log "Error: $($r.Error)" "ERROR" }
+    Start-Sleep -Seconds 5
+    # Paso 4: Esperar impresion
+    Add-Log "CORRECTIVO PASO 4/5: Esperando impresion de ultima secuencia..." "ACCION"
+    $recActual = Get-SecuenciaRecibida
+    $maxWait = 30; $waited = 0
+    while ($waited -lt $maxWait) {
+        $impActual = Get-SecuenciaImpresa
+        if ($null -ne $impActual -and $impActual.Secuencia -ge $recActual.Secuencia) {
+            Add-Log "Secuencia $($impActual.Secuencia) impresa OK!" "OK"
+            break
+        }
+        $waited++
+        Add-Log "Esperando... ($waited/$maxWait) Impresa: $($impActual.Secuencia) / Esperada: $($recActual.Secuencia)" "INFO"
+        Start-Sleep -Seconds 10
+    }
+    if ($waited -ge $maxWait) { Add-Log "TIMEOUT esperando impresion" "ERROR" }
+    # Paso 5: Iniciar servicio
+    Add-Log "CORRECTIVO PASO 5/5: Iniciando servicio..." "ACCION"
+    $r = Start-ServicioRemoto
+    if ($r.Success) { Add-Log "Servicio iniciado. CORRECTIVO COMPLETO." "OK" } else { Add-Log "Error: $($r.Error)" "ERROR" }
+    Update-Dashboard
 })
 
 $btnOpenLogs.Add_Click({
